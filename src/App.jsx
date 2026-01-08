@@ -22,7 +22,18 @@ const getEnvVar = (key, fallback = '') => {
     return fallback;
   }
 };
-
+{
+  "version": 2,
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
 // --- SYSTEM INITIALIZATION ---
 let app, auth, db, appId, systemStatus = "initializing";
 const firebaseConfigRaw = typeof __firebase_config !== 'undefined' ? __firebase_config : getEnvVar('VITE_FIREBASE_CONFIG', '');

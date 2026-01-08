@@ -9,6 +9,18 @@
     "lint": "eslint .",
     "preview": "vite preview"
   },
+{
+  "version": 2,
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
   "dependencies": {
     "firebase": "^12.7.0",
     "lucide-react": "^0.562.0",
