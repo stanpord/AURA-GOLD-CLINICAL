@@ -1,13 +1,358 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>aura-gold</title>
-  </head>
-  <body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aura Biometrics | Gold Enterprise v7.1</title>
+    <!-- Core Infrastructure -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=Montserrat:ital,wght@1,900&display=swap');
+        
+        :root {
+            --aura-indigo: #6366f1;
+            --aura-emerald: #10b981;
+        }
+
+        body { 
+            background-color: #000; 
+            color: #f8fafc; 
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow-x: hidden;
+        }
+
+        .font-black { font-weight: 900; }
+        .header-font { font-family: 'Montserrat', sans-serif; font-style: italic; font-weight: 900; }
+        
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .mirror-video { transform: scaleX(-1); }
+
+        /* Scanning Animation */
+        @keyframes scan {
+            0% { top: 0; opacity: 0; }
+            50% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .scan-line {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: var(--aura-indigo);
+            box-shadow: 0 0 15px var(--aura-indigo);
+            animation: scan 3s linear infinite;
+        }
+
+        /* Initial Loader to prevent Black Screen */
+        #loader {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease;
+        }
+
+        .pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+    </style>
+</head>
+<body>
+    <div id="loader">
+        <div class="text-indigo-500 mb-4 pulse">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6a6 6 0 1 0 6 6 6 6 0 0 0-6-6z"/></svg>
+        </div>
+        <div class="text-[10px] font-black uppercase tracking-[0.5em] text-slate-500">Initializing Biometric Node...</div>
+    </div>
+
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // --- ICON ENGINE ---
+        const Icon = ({ name, size = 24, className = "" }) => {
+            const [IconComp, setIconComp] = useState(null);
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    if (window.lucide && window.lucide.icons) {
+                        const lucideName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                        setIconComp(window.lucide.icons[lucideName] || window.lucide.icons['HelpCircle']);
+                        clearInterval(interval);
+                    }
+                }, 50);
+                return () => clearInterval(interval);
+            }, [name]);
+            if (!IconComp) return <div style={{ width: size, height: size }} className={className} />;
+            return <IconComp size={size} className={className} />;
+        };
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('overview');
+            const [image, setImage] = useState(null);
+            const [isAnalyzing, setIsAnalyzing] = useState(false);
+            const [analysisResult, setAnalysisResult] = useState(null);
+            const [error, setError] = useState(null);
+            const [leadName, setLeadName] = useState('');
+            const [leadEmail, setLeadEmail] = useState('');
+            const [showLeadForm, setShowLeadForm] = useState(false);
+            const [leadSubmitted, setLeadSubmitted] = useState(false);
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
+            const [showLogin, setShowLogin] = useState(false);
+            const [loginKey, setLoginKey] = useState('');
+            const [isCameraActive, setIsCameraActive] = useState(false);
+            
+            const videoRef = useRef(null);
+            const canvasRef = useRef(null);
+            const streamRef = useRef(null);
+            const apiKey = ""; // Runtime Injected
+
+            // Remove Loader once React is ready
+            useEffect(() => {
+                const loader = document.getElementById('loader');
+                if (loader) loader.style.opacity = '0';
+                setTimeout(() => loader && loader.remove(), 500);
+            }, []);
+
+            const categories = [
+                { id: 'overview', name: 'Foundation', icon: 'layers' },
+                { id: 'vision', name: 'Vision Lab', icon: 'search' },
+                { id: 'proportions', name: 'Harmony', icon: 'ruler' },
+                { id: 'bio', name: 'Wellness', icon: 'sparkles' },
+                { id: 'myo', name: 'Posture', icon: 'dumbbell' },
+                { id: 'safety', name: 'Ethics', icon: 'shield-check' },
+                ...(isLoggedIn ? [
+                    { id: 'enterprise', name: 'Leads', icon: 'briefcase' },
+                    { id: 'billing', name: 'Billing', icon: 'credit-card' },
+                    { id: 'integrations', name: 'Hub', icon: 'cpu' }
+                ] : [])
+            ];
+
+            const bioProtocols = {
+                overview: {
+                    title: "Foundation Protocol",
+                    description: "Structural diagnostics for patient qualification.",
+                    content: [
+                        { label: "Unified Anatomy Mapping", text: "Cohesive diagnostics of fat pad migration and skeletal base." },
+                        { label: "Aging Vectors", text: "Predictive bone loss modeling for 10-year preventative planning." }
+                    ]
+                },
+                bio: {
+                    title: "Bio-Wellness & Peptide Protocols",
+                    description: "Internal cellular support for high-end clinical longevity.",
+                    content: [
+                        { label: "GHK-Cu Dermal Signaling", text: "Copper peptide protocols designed to remodel the extracellular matrix and increase collagen density by 40%." },
+                        { label: "NAD+ Mitochondrial Load-in", text: "High-dose intravenous infusions to bypass digestion and defend against cellular aging." },
+                        { label: "BPC-157 Healing Stack", text: "Systemic repair signaling to accelerate tissue recovery after procedures like RF Microneedling." },
+                        { label: "Metabolic Secretagogues", text: "Monthly CJC/Ipamorelin stacks to stimulate natural growth hormone and skin thickness." },
+                        { label: "Systemic Radiance IV", text: "High-dose Glutathione stacks designed for systemic radiance and the 'Aura Glow'." }
+                    ]
+                }
+            };
+
+            const startCamera = async () => {
+                try {
+                    setImage(null); setAnalysisResult(null); setError(null);
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } 
+                    });
+                    streamRef.current = stream;
+                    if (videoRef.current) videoRef.current.srcObject = stream;
+                    setIsCameraActive(true);
+                } catch (err) {
+                    setError("Hardware access denied. Use 'Import Photo' instead.");
+                }
+            };
+
+            const capturePhoto = () => {
+                const canvas = canvasRef.current;
+                const video = videoRef.current;
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+                ctx.drawImage(video, 0, 0);
+                setImage(canvas.toDataURL('image/png'));
+                if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+                setIsCameraActive(false);
+            };
+
+            const analyzeImage = async () => {
+                if (!image) return;
+                setIsAnalyzing(true); setError(null);
+                const prompt = `Aura Biometrics v7.0. Output STRICT JSON. Include auraScore (0-1000), faceType (Archetype), halos, and 4 items in clinicalRoadmap. 
+                Include Peptides and IVs. Pricing: $350 - $5500. 
+                JSON: { "auraScore": 765, "faceType": "Diamond Archetype", "clinicalRoadmap": [{"name": "GHK-Cu Peptide Protocol", "benefit": "ECM Remodeling", "rationale": "Stimulates deep collagen foundation.", "estimatedValue": "$450/mo"}], "halos": ["Strong Zygomatic Arch"] }`;
+
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: "Compute full diagnostic." }, { inlineData: { mimeType: "image/png", data: image.split(',')[1] } }] }],
+                            systemInstruction: { parts: [{ text: prompt }] },
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
+                    const data = await res.json();
+                    const text = data.candidates[0].content.parts[0].text;
+                    const jsonMatch = text.match(/\{[\s\S]*\}/);
+                    setAnalysisResult(JSON.parse(jsonMatch[0]));
+                    setTimeout(() => setShowLeadForm(true), 1500);
+                } catch (err) {
+                    setError("Biometric Handshake Busy. Please retry.");
+                } finally { setIsAnalyzing(false); }
+            };
+
+            return (
+                <div className="min-h-screen bg-black text-slate-100 font-black flex flex-col selection:bg-indigo-500/30">
+                    {/* NAV */}
+                    <nav className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/5 px-6 py-4 flex items-center justify-between">
+                        <div className="flex items-center gap-2"><Icon name="fingerprint" size={20} className="text-indigo-500" /><span className="text-xl uppercase italic tracking-tighter">Aura Biometrics</span></div>
+                        <div className="hidden lg:flex gap-1">
+                            {categories.map(cat => (
+                                <button key={cat.id} onClick={() => setActiveTab(cat.id)} className={`px-4 py-1.5 rounded-full text-[9px] uppercase tracking-widest border transition-all ${activeTab === cat.id ? 'bg-white text-black border-white shadow-lg' : 'text-slate-500 border-transparent hover:border-white/10'}`}>{cat.name}</button>
+                            ))}
+                        </div>
+                        <button onClick={() => setShowLogin(true)} className="text-[10px] text-slate-600 uppercase tracking-widest hover:text-white font-black">{isLoggedIn ? 'Access Active' : 'Login'}</button>
+                    </nav>
+
+                    <main className="flex-1 max-w-5xl mx-auto w-full px-6 py-10 font-black">
+                        {activeTab === 'vision' ? (
+                            <div className="space-y-8 animate-in fade-in duration-700">
+                                <header className="flex justify-between items-end">
+                                    <div><h1 className="text-3xl font-black uppercase tracking-tight leading-none text-white font-black">Vision Lab</h1><p className="text-slate-500 text-[9px] uppercase tracking-widest mt-2 italic">Longevity & Identity Integration</p></div>
+                                    {analysisResult && <div className="text-right"><div className="text-[9px] text-indigo-400 uppercase mb-1">Aura Score</div><div className="text-4xl italic text-white leading-none tabular-nums font-black">{analysisResult.auraScore}</div></div>}
+                                </header>
+
+                                {!image && !isCameraActive ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <button onClick={startCamera} className="p-12 rounded-[2.5rem] bg-indigo-600/5 border border-white/5 flex flex-col items-center gap-4 text-indigo-400 active:scale-95 transition-all"><Icon name="camera" size={32}/><span className="text-[10px] uppercase tracking-widest font-black">Launch Scan</span></button>
+                                        <button onClick={() => document.getElementById('f-in').click()} className="p-12 rounded-[2.5rem] bg-slate-900 border border-white/5 flex flex-col items-center gap-4 text-slate-400 active:scale-95 transition-all"><Icon name="upload" size={32}/><span className="text-[10px] uppercase tracking-widest font-black">Import Photo</span></button>
+                                        <input id="f-in" type="file" className="hidden" onChange={(e) => { const f = e.target.files[0]; if(f){const r=new FileReader(); r.onload=()=>setImage(r.result); r.readAsDataURL(f);}}} />
+                                    </div>
+                                ) : isCameraActive ? (
+                                    <div className="relative rounded-[2.5rem] overflow-hidden aspect-[3/4] max-w-sm mx-auto shadow-2xl border border-white/10 bg-slate-950">
+                                        <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover mirror-video" />
+                                        <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-6 z-20"><button onClick={() => setIsCameraActive(false)} className="p-4 bg-white/10 backdrop-blur-xl rounded-full text-white"><Icon name="x" size={20}/></button><button onClick={capturePhoto} className="p-6 bg-white rounded-full text-indigo-600 shadow-xl active:scale-90 transition-all"><Icon name="maximize-2" size={24}/></button></div>
+                                    </div>
+                                ) : (
+                                    <div className="grid lg:grid-cols-12 gap-8 items-start">
+                                        <div className="lg:col-span-5 space-y-4">
+                                            <div className="relative rounded-[2rem] overflow-hidden border border-white/10 bg-slate-900 shadow-2xl"><img src={image} className="w-full grayscale-[0.2]" alt="Patient" />{isAnalyzing && <div className="scan-line" />}<button onClick={() => {setImage(null); setAnalysisResult(null);}} className="absolute top-4 right-4 p-2 bg-black/60 rounded-full border border-white/10 text-white"><Icon name="refresh-cw" size={16}/></button></div>
+                                            {!analysisResult && !isAnalyzing && <button onClick={analyzeImage} className="w-full py-5 bg-white text-black rounded-2xl uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all font-black">Generate Diagnostic</button>}
+                                            {error && <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-[9px] text-rose-400 text-center uppercase font-black">{error}</div>}
+                                        </div>
+                                        <div className="lg:col-span-7 space-y-6">
+                                            {analysisResult && (
+                                                <div className="grid gap-4 animate-in slide-in-from-right-10 duration-700">
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="p-5 bg-slate-900 border border-white/10 rounded-2xl min-h-[90px] flex flex-col justify-center overflow-hidden break-words shadow-lg"><div className="text-[8px] text-slate-500 uppercase mb-1 leading-none font-black">Archetype</div><div className="text-sm italic text-white uppercase leading-tight font-black">{analysisResult.faceType}</div></div>
+                                                        <div className="p-5 bg-indigo-600/10 border border-indigo-500/20 rounded-2xl min-h-[90px] flex flex-col justify-center shadow-lg overflow-hidden break-words font-black"><div className="text-[8px] text-indigo-400 uppercase mb-1 leading-none font-black">Primary Halo</div><div className="text-[11px] font-bold text-white leading-tight italic font-black">{(analysisResult.halos && analysisResult.halos[0]) || 'Symmetry'}</div></div>
+                                                    </div>
+                                                    <section className="space-y-3 relative font-black">
+                                                        <h4 className="text-[9px] text-indigo-400 uppercase tracking-widest px-1 font-black">Diagnostic Roadmap</h4>
+                                                        <div className={`grid gap-3 transition-all ${!leadSubmitted ? 'blur-xl select-none opacity-30' : ''}`}>
+                                                            {(analysisResult.clinicalRoadmap || []).map((item, i) => (
+                                                                <div key={i} className={`p-5 rounded-2xl border transition-all ${item.name.toLowerCase().includes('pep') || item.name.toLowerCase().includes('iv') ? 'bg-emerald-600/10 border-emerald-500/30 shadow-emerald-600/10' : (i===0 ? 'bg-indigo-600/10 border-indigo-500/40 shadow-lg' : 'bg-slate-900 border-white/5 opacity-80')}`}>
+                                                                    <div className="flex justify-between items-center mb-3">
+                                                                        <div className="flex gap-3 items-center">
+                                                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${i===0 ? 'bg-indigo-500 text-white shadow-lg' : 'bg-white/5 text-indigo-400'}`}><Icon name={item.name.toLowerCase().includes('iv') ? 'droplet' : (i===0 ? 'zap' : 'microscope')} size={18} /></div>
+                                                                            <div><div className="flex items-center gap-2"><h5 className="font-black text-white text-xs uppercase italic leading-none font-black">{item.name}</h5>{i===0 && <span className="text-[7px] bg-indigo-500 text-white px-2 py-0.5 rounded-full uppercase">Impact</span>}</div><p className="text-indigo-400 text-[8px] mt-1 uppercase italic font-black">{item.benefit}</p></div>
+                                                                        </div>
+                                                                        <div className="text-[11px] text-emerald-400 font-bold tabular-nums italic font-black">{item.estimatedValue}</div>
+                                                                    </div>
+                                                                    <div className="p-3 bg-black/40 border border-white/5 rounded-lg"><p className="text-[10px] text-slate-400 leading-relaxed italic font-black">"{item.rationale || item.benefit}"</p></div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {!leadSubmitted && (
+                                                            <div className="absolute inset-0 flex items-center justify-center"><div className="text-center p-8 bg-black/60 backdrop-blur-md rounded-[2.5rem] border border-white/10 shadow-2xl"><Icon name="lock" className="mx-auto mb-4 text-indigo-400" /><button onClick={() => setShowLeadForm(true)} className="px-8 py-3.5 bg-white text-black font-black text-[9px] uppercase rounded-lg tracking-widest shadow-xl active:scale-95 transition-all">Unlock Results</button></div></div>
+                                                        )}
+                                                    </section>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="max-w-3xl mx-auto space-y-12 animate-in fade-in duration-700 font-black">
+                                <header className="space-y-4">
+                                    <h1 className="text-4xl md:text-5xl font-black uppercase tracking-tighter italic leading-[0.9] text-white font-black">Biometric<br/>Revenue Engine.</h1>
+                                    <p className="text-slate-500 text-sm font-bold uppercase tracking-widest italic opacity-60">High-Precision Diagnostics & Clinical Synchronization.</p>
+                                </header>
+                                {bioProtocols[activeTab] ? (
+                                    <div className="space-y-6 font-black">
+                                        <h2 className="text-2xl uppercase tracking-tight text-indigo-400 font-black">{bioProtocols[activeTab].title}</h2>
+                                        <p className="text-slate-400 text-xs italic font-black">{bioProtocols[activeTab].description}</p>
+                                        <div className="grid gap-4">
+                                            {bioProtocols[activeTab].content.map((item, idx) => (
+                                                <div key={idx} className="p-6 rounded-[2rem] border border-white/5 bg-slate-900/40 flex gap-4 items-start font-black">
+                                                    <div className="p-3 rounded-xl bg-indigo-600/10 text-indigo-400"><Icon name="zap" size={18} /></div>
+                                                    <div><h3 className="text-base uppercase mb-1 text-white leading-none font-black">{item.label}</h3><p className="text-slate-400 text-[11px] leading-relaxed italic font-black">{item.text}</p></div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="grid gap-4 pt-12 border-t border-white/5 font-black">
+                                        <button onClick={() => setActiveTab('vision')} className="group relative w-full py-12 bg-white text-black rounded-[2.5rem] overflow-hidden transition-all active:scale-95 shadow-2xl font-black">
+                                            <div className="relative z-10 flex flex-col items-center gap-2">
+                                                <span className="text-[10px] uppercase font-black tracking-[0.5em] text-slate-400 group-hover:text-indigo-600 transition-colors leading-none font-black">Infrastructure Node 01</span>
+                                                <span className="text-2xl font-black uppercase italic tracking-tight leading-none font-black">Initialize Patient Scan</span>
+                                            </div>
+                                            <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity"><Icon name="fingerprint" size={120} /></div>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </main>
+
+                    {/* MODALS */}
+                    {showLeadForm && !leadSubmitted && (
+                        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-50 flex items-center justify-center p-4">
+                            <div className="bg-slate-900 border border-indigo-500/30 rounded-[3rem] max-w-sm w-full p-10 text-center shadow-2xl font-black">
+                                <Icon name="mail" className="mx-auto mb-6 text-indigo-400 pulse" size={32} />
+                                <h2 className="text-xl text-white uppercase italic mb-6 leading-none font-black">Dispatch Bio-Report</h2>
+                                <div className="space-y-3 mb-8">
+                                    <input type="text" value={leadName} onChange={(e) => setLeadName(e.target.value)} placeholder="Full Name" className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-black outline-none focus:border-indigo-500" />
+                                    <input type="email" value={leadEmail} onChange={(e) => setLeadEmail(e.target.value)} placeholder="Clinic Email" className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-black outline-none focus:border-indigo-500" />
+                                </div>
+                                <button onClick={() => setLeadSubmitted(true)} className="w-full py-4 bg-indigo-600 rounded-xl uppercase text-[10px] tracking-widest font-black shadow-lg active:scale-95 transition-all">Unlock Diagnostic</button>
+                                <button onClick={() => setShowLeadForm(false)} className="mt-4 text-[10px] text-slate-600 uppercase tracking-widest font-black">Return to Lab</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <footer className="max-w-5xl mx-auto w-full px-6 py-16 text-center opacity-30 font-black">
+                        <div className="text-[8px] uppercase tracking-[0.5em] text-slate-600 mb-2 leading-none font-black">Aura Biometrics // World's First Revenue Infrastructure</div>
+                        <div className="text-[7px] uppercase tracking-widest text-slate-800 leading-none font-black">Enterprise Gold Tier v7.1.0</div>
+                    </footer>
+
+                    {/* MOBILE NAV */}
+                    <div className="lg:hidden fixed bottom-6 left-1/2 -translate-x-1/2 flex bg-black/80 backdrop-blur-2xl border border-white/10 p-1.5 rounded-full shadow-2xl z-40 max-w-[90vw] overflow-x-auto no-scrollbar scrollbar-hide">
+                        {categories.map(cat => (
+                            <button key={cat.id} onClick={() => setActiveTab(cat.id)} className={`p-3 rounded-full transition-all shrink-0 ${activeTab === cat.id ? 'bg-white text-black shadow-xl scale-105' : 'text-slate-500'}`}><Icon name={cat.icon} size={18} /></button>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
 </html>
+
