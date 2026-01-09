@@ -1,0 +1,29 @@
+// api/simulate-skin.js
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const { image, months, protocol } = req.body
+
+  if (!image) {
+    return res.status(400).json({ error: 'No image provided' })
+  }
+
+  try {
+    // In real production you would call Gemini API here
+    // This is a placeholder response
+    // You MUST implement actual Gemini call with your key stored in Vercel env vars
+
+    // Example placeholder (replace with real implementation)
+    const mockImageUrl = `https://placehold.co/800x800/111/eee/png?text=Future+Skin+Simulation\n${months}+months\n${protocol}`
+
+    return res.status(200).json({
+      success: true,
+      imageUrl: mockImageUrl
+    })
+  } catch (error) {
+    console.error('Simulation error:', error)
+    return res.status(500).json({ error: 'Failed to generate simulation' })
+  }
+}
